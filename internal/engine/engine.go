@@ -30,10 +30,23 @@ type Capabilities struct {
 	VideoTrack bool
 }
 
+// Credentials are produced by an auth provider — duplicated here to avoid an
+// import cycle between engine and auth.
+type Credentials struct {
+	URL   string
+	Token string
+	Extra map[string]string
+}
+
 // Config is the runtime input to an engine factory. URL/Token are produced by
 // an auth provider (or supplied directly by the caller for "none" auth).
 // Extra carries engine-specific fields that don't fit the common shape
 // (e.g. SaluteJazz needs a separate room password alongside the room ID).
+//
+// Refresh, when set, is called by an engine whose protocol requires fresh
+// credentials on each reconnect (e.g. Goolom: every reconnect needs a new
+// peerID/credentials tuple from the room-info HTTP endpoint). Engines that
+// don't need this should ignore it.
 type Config struct {
 	URL       string
 	Token     string
@@ -43,6 +56,7 @@ type Config struct {
 	DNSServer string
 	ProxyAddr string
 	ProxyPort int
+	Refresh   func(ctx context.Context) (Credentials, error)
 }
 
 // Session is the engine-level runtime handle. It is shaped to match what

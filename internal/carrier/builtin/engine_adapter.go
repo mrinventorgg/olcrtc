@@ -15,13 +15,14 @@ import (
 // reports.
 func registerEngineAuth(carrierName string, authProvider auth.Provider) {
 	carrier.Register(carrierName, func(ctx context.Context, cfg carrier.Config) (carrier.Session, error) {
-		creds, err := authProvider.Issue(ctx, auth.Config{
+		authCfg := auth.Config{
 			RoomURL:   cfg.RoomURL,
 			Name:      cfg.Name,
 			DNSServer: cfg.DNSServer,
 			ProxyAddr: cfg.ProxyAddr,
 			ProxyPort: cfg.ProxyPort,
-		})
+		}
+		creds, err := authProvider.Issue(ctx, authCfg)
 		if err != nil {
 			return nil, fmt.Errorf("auth issue: %w", err)
 		}
@@ -35,6 +36,13 @@ func registerEngineAuth(carrierName string, authProvider auth.Provider) {
 			DNSServer: cfg.DNSServer,
 			ProxyAddr: cfg.ProxyAddr,
 			ProxyPort: cfg.ProxyPort,
+			Refresh: func(ctx context.Context) (engine.Credentials, error) {
+				fresh, err := authProvider.Issue(ctx, authCfg)
+				if err != nil {
+					return engine.Credentials{}, fmt.Errorf("auth refresh: %w", err)
+				}
+				return engine.Credentials{URL: fresh.URL, Token: fresh.Token, Extra: fresh.Extra}, nil
+			},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("engine new: %w", err)

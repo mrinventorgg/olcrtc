@@ -1,3 +1,9 @@
+// Package telemost is the auth provider for the Yandex Telemost service.
+// It fetches the connection metadata (media server URL, peer ID, room ID,
+// signing credentials) the Goolom engine needs to join a conference.
+//
+// Telemost does not expose an API to create rooms — they originate in the
+// Yandex UI — so this provider does not implement auth.RoomCreator.
 package telemost
 
 import (
@@ -71,6 +77,5 @@ func GetConnectionInfo(ctx context.Context, roomURL, displayName string) (*Conne
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-
 	return &info, nil
 }
