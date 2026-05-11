@@ -60,9 +60,20 @@ func (a stubAuth) Issue(_ context.Context, cfg auth.Config) (auth.Credentials, e
 	return auth.Credentials{URL: "wss://stub/", Token: stubToken}, nil
 }
 
+type stubAuthWithRoomCreator struct{ stubAuth }
+
+func (stubAuthWithRoomCreator) CreateRoom(_ context.Context, _ auth.Config) (string, error) {
+	return "created-room-id", nil
+}
+
 func registerStubAuth(t *testing.T, name, engineName string) {
 	t.Helper()
 	auth.Register(name, stubAuth{engineName: engineName})
+}
+
+func registerStubAuthWithCreator(t *testing.T, name, engineName string) {
+	t.Helper()
+	auth.Register(name, stubAuthWithRoomCreator{stubAuth{engineName: engineName}})
 }
 
 // --- tests ---
@@ -157,6 +168,28 @@ func TestNewAuth_OK(t *testing.T) {
 func TestRegisterDefaults_Idempotent(_ *testing.T) {
 	olcrtc.RegisterDefaults()
 	olcrtc.RegisterDefaults()
+}
+
+func TestCreateRoom_Unsupported(t *testing.T) {
+	registerStubAuth(t, "stub-nocreate", "stub-direct")
+
+	_, err := olcrtc.CreateRoom(context.Background(), "stub-nocreate")
+	if !errors.Is(err, olcrtc.ErrRoomCreationUnsupported) {
+		t.Fatalf("CreateRoom(no creator) = %v, want ErrRoomCreationUnsupported", err)
+	}
+}
+
+func TestCreateRoom_OK(t *testing.T) {
+	registerStubEngine(t, "stub-creator-engine")
+	registerStubAuthWithCreator(t, "stub-creator", "stub-creator-engine")
+
+	roomID, err := olcrtc.CreateRoom(context.Background(), "stub-creator")
+	if err != nil {
+		t.Fatalf("CreateRoom() error = %v", err)
+	}
+	if roomID == "" {
+		t.Fatal("CreateRoom() returned empty room ID")
+	}
 }
 
 func TestDial_RoundTrip(t *testing.T) {

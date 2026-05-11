@@ -43,6 +43,8 @@ var (
 	ErrURLRequired = errors.New("olcrtc: URL required when using direct engine mode")
 	// ErrTokenRequired is returned when direct mode is used without a token.
 	ErrTokenRequired = errors.New("olcrtc: Token required when using direct engine mode")
+	// ErrRoomCreationUnsupported is returned when the auth provider cannot create rooms.
+	ErrRoomCreationUnsupported = errors.New("olcrtc: auth provider does not support room creation")
 )
 
 // Config is the input to [New].
@@ -227,4 +229,24 @@ func (s *Session) SetEndedCallback(cb func(reason string)) {
 // SetShouldReconnect controls whether automatic reconnection is attempted.
 func (s *Session) SetShouldReconnect(fn func() bool) {
 	s.inner.SetShouldReconnect(fn)
+}
+
+// CreateRoom creates a new room via the auth provider and returns the room ID.
+// Only works when the session was created with Auth set to a provider that
+// supports room creation (wbstream, jazz). Returns [ErrRoomCreationUnsupported]
+// for providers that don't support it (e.g. telemost).
+func CreateRoom(ctx context.Context, authName string) (string, error) {
+	p, err := auth.Get(authName)
+	if err != nil {
+		return "", fmt.Errorf("olcrtc: auth provider %q not registered: %w", authName, err)
+	}
+	creator, ok := p.(auth.RoomCreator)
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrRoomCreationUnsupported, authName)
+	}
+	roomID, err := creator.CreateRoom(ctx, auth.Config{})
+	if err != nil {
+		return "", fmt.Errorf("olcrtc: create room: %w", err)
+	}
+	return roomID, nil
 }
