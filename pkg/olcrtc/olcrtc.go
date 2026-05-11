@@ -1,35 +1,37 @@
 // Package olcrtc exposes olcrtc as an embeddable Go library.
 //
-// Typical usage (direct engine, no service-specific auth):
+// Typical usage — obtain a [net.Conn]-compatible handle and dial:
 //
 //	sess, err := olcrtc.New(ctx, olcrtc.Config{
 //	    Engine: "livekit",
 //	    URL:    "wss://sfu.example/",
 //	    Token:  "<livekit-jwt>",
 //	})
+//	if err != nil { ... }
+//	conn, err := sess.Dial(ctx)  // blocks until WebRTC data channel is ready
+//	// conn implements net.Conn — pass it to sing-box / any io.ReadWriter consumer
 //
-// Typical usage (built-in auth provider):
+// Built-in auth providers (telemost, jazz, wbstream):
 //
 //	sess, err := olcrtc.New(ctx, olcrtc.Config{
 //	    Auth:   "telemost",
-//	    RoomID: "<telemost-room-hash>",
+//	    RoomID: "<room-hash>",
 //	})
 //
-// In both cases the caller must import the engine and (optionally) auth
-// packages it needs via blank imports so their init() functions run:
+// Import the implementations you need via blank imports, or call [RegisterDefaults]:
 //
 //	import (
 //	    _ "github.com/openlibrecommunity/olcrtc/internal/engine/livekit"
 //	    _ "github.com/openlibrecommunity/olcrtc/internal/auth/telemost"
 //	)
-//
-// Or use [RegisterDefaults] to pull in all built-in implementations at once.
 package olcrtc
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 
 	"github.com/openlibrecommunity/olcrtc/internal/auth"
 	"github.com/openlibrecommunity/olcrtc/internal/carrier/builtin"
@@ -37,8 +39,6 @@ import (
 )
 
 var (
-	// ErrAuthOrEngineRequired is returned when neither auth nor engine+URL are supplied.
-	ErrAuthOrEngineRequired = errors.New("olcrtc: supply either Auth or Engine+URL")
 	// ErrURLRequired is returned when direct mode is used without a URL.
 	ErrURLRequired = errors.New("olcrtc: URL required when using direct engine mode")
 	// ErrTokenRequired is returned when direct mode is used without a token.
@@ -68,16 +68,14 @@ type Config struct {
 	// ProxyAddr / ProxyPort configure an outbound SOCKS5 proxy.
 	ProxyAddr string
 	ProxyPort int
-	// OnData, when set, receives incoming data-channel bytes. If nil the
-	// session operates in video-track / media-only mode.
-	OnData func([]byte)
 }
 
 // Session is the library handle returned by [New].
-// Connect must be called before Send. Close releases all resources.
+// Call [Session.Dial] to connect and obtain a [net.Conn].
 type Session struct {
-	inner engine.Session
-	// refresh is stored so it survives reconnects via the engine's Refresh hook.
+	inner    engine.Session
+	pr       *io.PipeReader
+	pw       *io.PipeWriter
 	authProvider auth.Provider
 	authCfg      auth.Config
 }
@@ -117,13 +115,14 @@ func newWithAuth(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("olcrtc: auth issue: %w", err)
 	}
 
+	pr, pw := io.Pipe()
 	engineName := p.Engine()
 	sess, err := engine.New(ctx, engineName, engine.Config{
 		URL:       creds.URL,
 		Token:     creds.Token,
 		Name:      cfg.Name,
 		Extra:     creds.Extra,
-		OnData:    cfg.OnData,
+		OnData:    func(data []byte) { _, _ = pw.Write(data) },
 		DNSServer: cfg.DNSServer,
 		ProxyAddr: cfg.ProxyAddr,
 		ProxyPort: cfg.ProxyPort,
@@ -136,10 +135,11 @@ func newWithAuth(ctx context.Context, cfg Config) (*Session, error) {
 		},
 	})
 	if err != nil {
+		_ = pw.CloseWithError(err)
 		return nil, fmt.Errorf("olcrtc: engine %q: %w", engineName, err)
 	}
 
-	return &Session{inner: sess, authProvider: p, authCfg: authCfg}, nil
+	return &Session{inner: sess, pr: pr, pw: pw, authProvider: p, authCfg: authCfg}, nil
 }
 
 func newDirect(ctx context.Context, cfg Config) (*Session, error) {
@@ -155,20 +155,31 @@ func newDirect(ctx context.Context, cfg Config) (*Session, error) {
 		engineName = "livekit"
 	}
 
+	pr, pw := io.Pipe()
 	sess, err := engine.New(ctx, engineName, engine.Config{
 		URL:       cfg.URL,
 		Token:     cfg.Token,
 		Name:      cfg.Name,
-		OnData:    cfg.OnData,
+		OnData:    func(data []byte) { _, _ = pw.Write(data) },
 		DNSServer: cfg.DNSServer,
 		ProxyAddr: cfg.ProxyAddr,
 		ProxyPort: cfg.ProxyPort,
 	})
 	if err != nil {
+		_ = pw.CloseWithError(err)
 		return nil, fmt.Errorf("olcrtc: engine %q: %w", engineName, err)
 	}
 
-	return &Session{inner: sess}, nil
+	return &Session{inner: sess, pr: pr, pw: pw}, nil
+}
+
+// Dial connects and returns a [net.Conn] backed by the WebRTC data channel.
+// It combines [Session.Connect] + wrapping in a single call.
+func (s *Session) Dial(ctx context.Context) (net.Conn, error) {
+	if err := s.Connect(ctx); err != nil {
+		return nil, err
+	}
+	return &conn{s: s}, nil
 }
 
 // Connect establishes the WebRTC connection. Blocks until the data channel (or

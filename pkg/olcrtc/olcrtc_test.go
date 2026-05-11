@@ -158,3 +158,40 @@ func TestRegisterDefaults_Idempotent(_ *testing.T) {
 	olcrtc.RegisterDefaults()
 	olcrtc.RegisterDefaults()
 }
+
+func TestDial_RoundTrip(t *testing.T) {
+	registerStubEngine(t, "stub-dial")
+
+	sess, err := olcrtc.New(context.Background(), olcrtc.Config{
+		Engine: "stub-dial",
+		URL:    stubURL,
+		Token:  stubToken,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	c, err := sess.Dial(context.Background())
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+
+	// Write should succeed (stub Send is a no-op).
+	payload := []byte("hello")
+	n, err := c.Write(payload)
+	if err != nil || n != len(payload) {
+		t.Fatalf("Write() = (%d, %v)", n, err)
+	}
+
+	// Close should unblock any pending Read.
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Read after close should return an error (pipe closed).
+	buf := make([]byte, 4)
+	_, err = c.Read(buf)
+	if err == nil {
+		t.Fatal("Read() after Close() should return error")
+	}
+}
