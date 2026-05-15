@@ -1017,11 +1017,19 @@ func TestRealProviderTransportMatrix(t *testing.T) {
 			roomCtx, cancelRoom := context.WithTimeout(context.Background(), *realE2ETimeout)
 			defer cancelRoom()
 			roomURL := requireRealRoom(roomCtx, t, carrierName)
+			var authFailed bool
 			for _, transportName := range transports {
 				t.Run(transportName, func(t *testing.T) {
+					if authFailed {
+						t.Skip("skipping: carrier auth failed on previous transport")
+					}
 					expectation := realE2ECaseExpectation(carrierName, transportName)
 					label := realE2EExpectationLabel(expectation)
 					err := runRealE2ECase(t, carrierName, transportName, roomURL, echoAddr)
+					if err != nil && errors.Is(err, carrier.ErrAuthFailed) {
+						authFailed = true
+						t.Skipf("skip %s real e2e: auth failed: %v", carrierName, err)
+					}
 					switch {
 					case err == nil && expectation == realE2EExpectPass:
 						t.Logf("%s %s/%s", label, carrierName, transportName)
