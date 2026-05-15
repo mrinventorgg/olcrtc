@@ -162,7 +162,7 @@ func TestSendAckAndClosePaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decodeTransportFrame() error = %v", err)
 		}
-		tr.resolveAck(decoded.seq, crc32.ChecksumIEEE(payload))
+		tr.resolveAck(decoded.channelID, decoded.seq, crc32.ChecksumIEEE(payload))
 	case <-time.After(time.Second):
 		t.Fatal("Send() did not enqueue frame")
 	}
