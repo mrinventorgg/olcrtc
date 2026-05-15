@@ -129,7 +129,7 @@ func TestSanitiseNick(t *testing.T) {
 	}{
 		{"alice", "alice"},
 		{"Alice Smith", "Alice-Smith"},
-		{"Конрад Олег", ""},
+		{"Конрад Олег", "Konrad-Oleg"},
 		{"olcrtc-bot42", "olcrtc-bot42"},
 		{"  bob  ", "bob"},
 		{"$$$ %%%", ""},

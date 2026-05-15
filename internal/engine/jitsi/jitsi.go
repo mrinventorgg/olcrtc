@@ -125,14 +125,30 @@ func New(_ context.Context, cfg engine.Config) (engine.Session, error) {
 	}, nil
 }
 
+// cyrillicToLatin maps Cyrillic runes to their Latin transliteration strings.
+var cyrillicToLatin = map[rune]string{ //nolint:gochecknoglobals // package-level lookup table
+	'А': "A", 'а': "a", 'Б': "B", 'б': "b", 'В': "V", 'в': "v",
+	'Г': "G", 'г': "g", 'Д': "D", 'д': "d", 'Е': "E", 'е': "e",
+	'Ё': "Yo", 'ё': "yo", 'Ж': "Zh", 'ж': "zh", 'З': "Z", 'з': "z",
+	'И': "I", 'и': "i", 'Й': "Y", 'й': "y", 'К': "K", 'к': "k",
+	'Л': "L", 'л': "l", 'М': "M", 'м': "m", 'Н': "N", 'н': "n",
+	'О': "O", 'о': "o", 'П': "P", 'п': "p", 'Р': "R", 'р': "r",
+	'С': "S", 'с': "s", 'Т': "T", 'т': "t", 'У': "U", 'у': "u",
+	'Ф': "F", 'ф': "f", 'Х': "Kh", 'х': "kh", 'Ц': "Ts", 'ц': "ts",
+	'Ч': "Ch", 'ч': "ch", 'Ш': "Sh", 'ш': "sh", 'Щ': "Shch", 'щ': "shch",
+	'Ъ': "", 'ъ': "", 'Ы': "Y", 'ы': "y", 'Ь': "", 'ь': "",
+	'Э': "E", 'э': "e", 'Ю': "Yu", 'ю': "yu", 'Я': "Ya", 'я': "ya",
+}
+
 // sanitiseNick reduces a display name to a 7-bit ASCII slug acceptable to
 // the j library's MUC presence helper. The helper currently uses byte-level
 // slicing on the supplied name to derive a stats-id, so multi-byte UTF-8
 // inputs (e.g. Cyrillic) get sliced mid-codepoint and Prosody silently
 // rejects the resulting presence stanza.
 //
-// Non-ASCII characters are dropped; spaces and punctuation are normalised
-// to '-'. The result is bounded to 16 characters.
+// Cyrillic characters are transliterated; other non-ASCII characters are
+// dropped; spaces and punctuation are normalised to '-'. The result is
+// bounded to 16 characters.
 func sanitiseNick(raw string) string {
 	const maxNickLen = 16
 	var b strings.Builder
@@ -144,6 +160,16 @@ func sanitiseNick(raw string) string {
 		}
 		if isNickRune(r) {
 			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if lat, ok := cyrillicToLatin[r]; ok {
+			for _, lr := range lat {
+				if b.Len() >= maxNickLen {
+					break
+				}
+				b.WriteRune(lr)
+			}
 			prevDash = false
 			continue
 		}
