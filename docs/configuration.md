@@ -127,3 +127,7 @@ failover:
 Both peers must use compatible profile order and room settings. This first
 failover layer rebuilds the session on the next profile; active smux streams
 do not migrate, but new connections can recover on the next profile.
+
+When `debug: true` is enabled, the CLI also emits a compact supervisor status
+snapshot with the active profile, per-profile start/failure counters, and
+bounded failover history size.

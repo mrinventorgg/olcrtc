@@ -214,8 +214,38 @@ func runFailoverSessionMode(dataDir string, profiles []supervisor.Profile, failo
 				}
 				logger.Warnf("failover cycle=%d profile=%s ended", cycle, profile.Name)
 			},
+			OnStatus: logFailoverStatus,
 		}, runSession)
 	})
+}
+
+func logFailoverStatus(status supervisor.Status) {
+	if !logger.IsVerbose() {
+		return
+	}
+	active := status.ActiveProfile
+	if active == "" {
+		active = "none"
+	}
+	logger.Debugf("failover status cycle=%d active=%s last_error=%q profiles=%s history=%d",
+		status.Cycle, active, status.LastError, formatProfileStatuses(status.Profiles), len(status.History))
+}
+
+func formatProfileStatuses(profiles []supervisor.ProfileStatus) string {
+	if len(profiles) == 0 {
+		return "[]"
+	}
+	var buf bytes.Buffer
+	buf.WriteByte('[')
+	for i, profile := range profiles {
+		if i > 0 {
+			buf.WriteByte(' ')
+		}
+		fmt.Fprintf(&buf, "%s{starts=%d failures=%d clean=%d}",
+			profile.Name, profile.Starts, profile.Failures, profile.CleanEnds)
+	}
+	buf.WriteByte(']')
+	return buf.String()
 }
 
 func prepareRuntimeData(dataDir string) error {

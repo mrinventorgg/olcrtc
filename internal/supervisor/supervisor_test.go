@@ -58,6 +58,91 @@ func TestRunAdvancesProfilesAndStopsAtMaxCycles(t *testing.T) {
 	}
 }
 
+func TestRunEmitsStatusHistory(t *testing.T) {
+	profiles := []Profile{
+		{Name: "first", Config: session.Config{Auth: "wbstream"}},
+		{Name: "second", Config: session.Config{Auth: "jitsi"}},
+	}
+	var snapshots []Status
+	err := Run(context.Background(), Config{
+		Profiles:     profiles,
+		RetryDelay:   -1,
+		MaxCycles:    1,
+		HistoryLimit: 3,
+		OnStatus: func(status Status) {
+			snapshots = append(snapshots, status)
+		},
+	}, func(_ context.Context, cfg session.Config) error {
+		if cfg.Auth == "first" {
+			t.Fatal("runner received profile name instead of config")
+		}
+		return errRunnerBoom
+	})
+	if !errors.Is(err, ErrMaxCyclesExceeded) {
+		t.Fatalf("Run() error = %v, want %v", err, ErrMaxCyclesExceeded)
+	}
+	if len(snapshots) != 4 {
+		t.Fatalf("status snapshots = %d, want 4", len(snapshots))
+	}
+	first := snapshots[0]
+	if first.ActiveProfile != "first" || first.ActiveProfileIndex != 0 || first.Cycle != 1 {
+		t.Fatalf("first status = %+v", first)
+	}
+	if first.Profiles[0].Starts != 1 || first.Profiles[0].LastStarted.IsZero() {
+		t.Fatalf("first profile start status = %+v", first.Profiles[0])
+	}
+	last := snapshots[len(snapshots)-1]
+	if last.ActiveProfile != "" || last.ActiveProfileIndex != -1 {
+		t.Fatalf("last active status = %+v", last)
+	}
+	if last.Profiles[0].Failures != 1 || last.Profiles[1].Failures != 1 {
+		t.Fatalf("profile failures = %+v", last.Profiles)
+	}
+	if last.LastError == "" || last.Profiles[1].LastError == "" {
+		t.Fatalf("last errors missing: %+v", last)
+	}
+	if len(last.History) != 3 {
+		t.Fatalf("history length = %d, want 3", len(last.History))
+	}
+	if last.History[0].Type != EventProfileEnd || last.History[0].Profile != "first" {
+		t.Fatalf("oldest bounded history event = %+v", last.History[0])
+	}
+	if last.History[2].Type != EventProfileEnd || last.History[2].Profile != "second" ||
+		last.History[2].Error == "" {
+		t.Fatalf("last history event = %+v", last.History[2])
+	}
+}
+
+func TestRunStatusSnapshotIsImmutable(t *testing.T) {
+	var first Status
+	var second Status
+	err := Run(context.Background(), Config{
+		Profiles:   []Profile{{Name: "one"}},
+		RetryDelay: -1,
+		MaxCycles:  1,
+		OnStatus: func(status Status) {
+			if first.Profiles == nil {
+				first = status
+				first.Profiles[0].Starts = 99
+				first.History[0].Profile = "mutated"
+				return
+			}
+			second = status
+		},
+	}, func(context.Context, session.Config) error {
+		return errRunnerBoom
+	})
+	if !errors.Is(err, ErrMaxCyclesExceeded) {
+		t.Fatalf("Run() error = %v, want %v", err, ErrMaxCyclesExceeded)
+	}
+	if first.Profiles[0].Starts != 99 || first.History[0].Profile != "mutated" {
+		t.Fatalf("test mutation did not apply to snapshot: %+v", first)
+	}
+	if second.Profiles[0].Starts != 1 || second.History[0].Profile != "one" {
+		t.Fatalf("snapshot mutation leaked into later status: %+v", second)
+	}
+}
+
 func TestRunReturnsNilOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	err := Run(ctx, Config{

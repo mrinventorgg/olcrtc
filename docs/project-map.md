@@ -305,13 +305,14 @@ Implemented:
 - `failover.max_cycles`.
 - Profile start/end logs.
 - Planned session rotation with `lifecycle.max_session_duration`.
+- Shared supervisor status snapshots with bounded failover history.
 
 Still valuable:
 
 - Health scoring per profile.
 - Control-stream coordination before switching.
 - Stream draining and migration instead of dropping active smux streams.
-- Shared status output for the active profile and failover history.
+- User-facing status endpoint/export for the active profile and failover history.
 
 Likely files:
 
