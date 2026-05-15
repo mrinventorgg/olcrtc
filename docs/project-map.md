@@ -304,6 +304,7 @@ Implemented:
 - `failover.retry_delay`.
 - `failover.max_cycles`.
 - Profile start/end logs.
+- Planned session rotation with `lifecycle.max_session_duration`.
 
 Still valuable:
 

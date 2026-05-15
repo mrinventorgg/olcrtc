@@ -26,6 +26,10 @@ liveness:
   timeout: 5s
   failures: 3
 
+# Optional planned rebuild for long-running calls.
+# lifecycle:
+#   max_session_duration: 6h
+
 # Local SOCKS5 listener exposed to applications
 socks:
   host: "127.0.0.1"

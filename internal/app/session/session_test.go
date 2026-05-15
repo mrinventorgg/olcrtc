@@ -3,7 +3,9 @@ package session
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/openlibrecommunity/olcrtc/internal/control"
 )
@@ -102,6 +104,31 @@ func TestApplyLivenessDefaults(t *testing.T) {
 	explicit := Config{LivenessInterval: "1s", LivenessTimeout: "500ms", LivenessFailures: 9}
 	if got := ApplyLivenessDefaults(explicit); got != explicit {
 		t.Fatalf("ApplyLivenessDefaults() = %+v, want %+v", got, explicit)
+	}
+}
+
+func TestRunWithSessionRotationRestartsAfterMaxDuration(t *testing.T) {
+	oldRestartDelay := sessionRestartDelay
+	sessionRestartDelay = time.Millisecond
+	t.Cleanup(func() { sessionRestartDelay = oldRestartDelay })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var calls atomic.Int32
+	err := runWithSessionRotation(ctx, 5*time.Millisecond, func(ctx context.Context) error {
+		if calls.Add(1) >= 2 {
+			cancel()
+			return nil
+		}
+		<-ctx.Done()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("runWithSessionRotation() error = %v", err)
+	}
+	if got := calls.Load(); got < 2 {
+		t.Fatalf("run calls = %d, want at least 2", got)
 	}
 }
 
@@ -468,6 +495,32 @@ func TestValidate(t *testing.T) {
 				return cfg
 			}(),
 			want: ErrLivenessFailuresInvalid,
+		},
+		{
+			name: "lifecycle accepts max session duration",
+			cfg: func() Config {
+				cfg := base
+				cfg.MaxSessionDuration = "1h"
+				return cfg
+			}(),
+		},
+		{
+			name: "lifecycle rejects bad max session duration",
+			cfg: func() Config {
+				cfg := base
+				cfg.MaxSessionDuration = "nope"
+				return cfg
+			}(),
+			want: ErrLifecycleMaxSessionDurationInvalid,
+		},
+		{
+			name: "lifecycle rejects zero max session duration",
+			cfg: func() Config {
+				cfg := base
+				cfg.MaxSessionDuration = "0s"
+				return cfg
+			}(),
+			want: ErrLifecycleMaxSessionDurationInvalid,
 		},
 	}
 

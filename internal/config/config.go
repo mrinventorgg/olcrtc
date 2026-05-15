@@ -30,40 +30,42 @@ var (
 
 // File is the on-disk YAML schema.
 type File struct {
-	Mode     string    `yaml:"mode"`
-	Link     string    `yaml:"link"`
-	Auth     Auth      `yaml:"auth"`
-	Room     Room      `yaml:"room"`
-	Crypto   Crypto    `yaml:"crypto"`
-	Net      Net       `yaml:"net"`
-	SOCKS    SOCKS     `yaml:"socks"`
-	Engine   Engine    `yaml:"engine"`
-	Video    Video     `yaml:"video"`
-	VP8      VP8       `yaml:"vp8"`
-	SEI      SEI       `yaml:"sei"`
-	Liveness Liveness  `yaml:"liveness"`
-	Gen      Gen       `yaml:"gen"`
-	Profiles []Profile `yaml:"profiles"`
-	Failover Failover  `yaml:"failover"`
-	Data     string    `yaml:"data"`
-	Debug    bool      `yaml:"debug"`
-	FFmpeg   string    `yaml:"ffmpeg"`
+	Mode      string    `yaml:"mode"`
+	Link      string    `yaml:"link"`
+	Auth      Auth      `yaml:"auth"`
+	Room      Room      `yaml:"room"`
+	Crypto    Crypto    `yaml:"crypto"`
+	Net       Net       `yaml:"net"`
+	SOCKS     SOCKS     `yaml:"socks"`
+	Engine    Engine    `yaml:"engine"`
+	Video     Video     `yaml:"video"`
+	VP8       VP8       `yaml:"vp8"`
+	SEI       SEI       `yaml:"sei"`
+	Liveness  Liveness  `yaml:"liveness"`
+	Lifecycle Lifecycle `yaml:"lifecycle"`
+	Gen       Gen       `yaml:"gen"`
+	Profiles  []Profile `yaml:"profiles"`
+	Failover  Failover  `yaml:"failover"`
+	Data      string    `yaml:"data"`
+	Debug     bool      `yaml:"debug"`
+	FFmpeg    string    `yaml:"ffmpeg"`
 }
 
 // Profile is a failover entry that overrides top-level runtime fields.
 type Profile struct {
-	Name     string   `yaml:"name"`
-	Link     string   `yaml:"link"`
-	Auth     Auth     `yaml:"auth"`
-	Room     Room     `yaml:"room"`
-	Crypto   Crypto   `yaml:"crypto"`
-	Net      Net      `yaml:"net"`
-	SOCKS    SOCKS    `yaml:"socks"`
-	Engine   Engine   `yaml:"engine"`
-	Video    Video    `yaml:"video"`
-	VP8      VP8      `yaml:"vp8"`
-	SEI      SEI      `yaml:"sei"`
-	Liveness Liveness `yaml:"liveness"`
+	Name      string    `yaml:"name"`
+	Link      string    `yaml:"link"`
+	Auth      Auth      `yaml:"auth"`
+	Room      Room      `yaml:"room"`
+	Crypto    Crypto    `yaml:"crypto"`
+	Net       Net       `yaml:"net"`
+	SOCKS     SOCKS     `yaml:"socks"`
+	Engine    Engine    `yaml:"engine"`
+	Video     Video     `yaml:"video"`
+	VP8       VP8       `yaml:"vp8"`
+	SEI       SEI       `yaml:"sei"`
+	Liveness  Liveness  `yaml:"liveness"`
+	Lifecycle Lifecycle `yaml:"lifecycle"`
 }
 
 // Failover controls ordered profile failover.
@@ -144,6 +146,11 @@ type Liveness struct {
 	Interval string `yaml:"interval"`
 	Timeout  string `yaml:"timeout"`
 	Failures int    `yaml:"failures"`
+}
+
+// Lifecycle controls planned session rebuilds.
+type Lifecycle struct {
+	MaxSessionDuration string `yaml:"max_session_duration"`
 }
 
 // Gen controls room-generation mode.
@@ -260,6 +267,7 @@ func Apply(dst session.Config, f File) session.Config {
 	dst.LivenessInterval = pickString(dst.LivenessInterval, f.Liveness.Interval)
 	dst.LivenessTimeout = pickString(dst.LivenessTimeout, f.Liveness.Timeout)
 	dst.LivenessFailures = pickInt(dst.LivenessFailures, f.Liveness.Failures)
+	dst.MaxSessionDuration = pickString(dst.MaxSessionDuration, f.Lifecycle.MaxSessionDuration)
 	dst.Amount = pickInt(dst.Amount, f.Gen.Amount)
 	return dst
 }
@@ -301,6 +309,7 @@ func ApplyProfile(base session.Config, p Profile) session.Config {
 	dst.LivenessInterval = overlayString(dst.LivenessInterval, p.Liveness.Interval)
 	dst.LivenessTimeout = overlayString(dst.LivenessTimeout, p.Liveness.Timeout)
 	dst.LivenessFailures = overlayInt(dst.LivenessFailures, p.Liveness.Failures)
+	dst.MaxSessionDuration = overlayString(dst.MaxSessionDuration, p.Lifecycle.MaxSessionDuration)
 	return dst
 }
 

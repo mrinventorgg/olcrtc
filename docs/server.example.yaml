@@ -28,6 +28,10 @@ liveness:
   timeout: 5s
   failures: 3
 
+# Optional planned rebuild for long-running calls.
+# lifecycle:
+#   max_session_duration: 6h
+
 # Outbound SOCKS5 proxy for server-side egress (optional)
 socks:
   proxy_addr: ""           # e.g. "127.0.0.1"

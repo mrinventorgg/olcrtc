@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/openlibrecommunity/olcrtc/internal/auth"
@@ -53,6 +54,8 @@ const (
 	defaultSEIFragmentSize = 900
 	defaultSEIAckTimeoutMS = 2000
 )
+
+var sessionRestartDelay = 2 * time.Second
 
 var (
 	// ErrRoomIDRequired indicates that a room id is required for the selected carrier.
@@ -131,46 +134,50 @@ var (
 	// ErrLivenessFailuresInvalid indicates that liveness.failures is not positive.
 	ErrLivenessFailuresInvalid = errors.New(
 		"invalid liveness failures (set liveness.failures to a value > 0)")
+	// ErrLifecycleMaxSessionDurationInvalid indicates that lifecycle.max_session_duration is not a positive duration.
+	ErrLifecycleMaxSessionDurationInvalid = errors.New(
+		"invalid max session duration (set lifecycle.max_session_duration to a duration > 0)")
 )
 
 // Config holds runtime session settings.
 type Config struct {
-	Mode             string
-	Link             string
-	Transport        string
-	Auth             string
-	Engine           string
-	URL              string
-	Token            string
-	RoomID           string
-	KeyHex           string
-	SOCKSHost        string
-	SOCKSPort        int
-	SOCKSUser        string
-	SOCKSPass        string
-	DNSServer        string
-	SOCKSProxyAddr   string
-	SOCKSProxyPort   int
-	VideoWidth       int
-	VideoHeight      int
-	VideoFPS         int
-	VideoBitrate     string
-	VideoHW          string
-	VideoQRSize      int
-	VideoQRRecovery  string
-	VideoCodec       string
-	VideoTileModule  int
-	VideoTileRS      int
-	VP8FPS           int
-	VP8BatchSize     int
-	SEIFPS           int
-	SEIBatchSize     int
-	SEIFragmentSize  int
-	SEIAckTimeoutMS  int
-	LivenessInterval string
-	LivenessTimeout  string
-	LivenessFailures int
-	Amount           int
+	Mode               string
+	Link               string
+	Transport          string
+	Auth               string
+	Engine             string
+	URL                string
+	Token              string
+	RoomID             string
+	KeyHex             string
+	SOCKSHost          string
+	SOCKSPort          int
+	SOCKSUser          string
+	SOCKSPass          string
+	DNSServer          string
+	SOCKSProxyAddr     string
+	SOCKSProxyPort     int
+	VideoWidth         int
+	VideoHeight        int
+	VideoFPS           int
+	VideoBitrate       string
+	VideoHW            string
+	VideoQRSize        int
+	VideoQRRecovery    string
+	VideoCodec         string
+	VideoTileModule    int
+	VideoTileRS        int
+	VP8FPS             int
+	VP8BatchSize       int
+	SEIFPS             int
+	SEIBatchSize       int
+	SEIFragmentSize    int
+	SEIAckTimeoutMS    int
+	LivenessInterval   string
+	LivenessTimeout    string
+	LivenessFailures   int
+	MaxSessionDuration string
+	Amount             int
 }
 
 // RegisterDefaults registers built-in carriers and transports.
@@ -321,6 +328,9 @@ func Validate(cfg Config) error {
 		return err
 	}
 	if err := validateLivenessConfig(cfg); err != nil {
+		return err
+	}
+	if err := validateLifecycleConfig(cfg); err != nil {
 		return err
 	}
 	return validateModeConfig(cfg)
@@ -475,6 +485,13 @@ func validateLivenessConfig(cfg Config) error {
 	return nil
 }
 
+func validateLifecycleConfig(cfg Config) error {
+	if _, err := maxSessionDuration(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
 func parseLivenessDuration(value string, def time.Duration) (time.Duration, error) {
 	if value == "" {
 		return def, nil
@@ -508,6 +525,20 @@ func livenessConfig(cfg Config) (control.Config, error) {
 	return control.Config{Interval: interval, Timeout: timeout, Failures: failures}, nil
 }
 
+func maxSessionDuration(cfg Config) (time.Duration, error) {
+	if cfg.MaxSessionDuration == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(cfg.MaxSessionDuration)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrLifecycleMaxSessionDurationInvalid, err)
+	}
+	if d <= 0 {
+		return 0, ErrLifecycleMaxSessionDurationInvalid
+	}
+	return d, nil
+}
+
 func isLoopbackListenHost(host string) bool {
 	if host == "localhost" {
 		return true
@@ -525,7 +556,21 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	maxDuration, err := maxSessionDuration(cfg)
+	if err != nil {
+		return err
+	}
 
+	run := func(ctx context.Context) error {
+		return runOnce(ctx, cfg, roomURL, liveness)
+	}
+	if maxDuration > 0 {
+		return runWithSessionRotation(ctx, maxDuration, run)
+	}
+	return run(ctx)
+}
+
+func runOnce(ctx context.Context, cfg Config, roomURL string, liveness control.Config) error {
 	switch cfg.Mode {
 	case modeSRV:
 		if err := server.Run(ctx, server.Config{
@@ -607,6 +652,52 @@ func Run(ctx context.Context, cfg Config) error {
 		return nil
 	default:
 		return ErrModeRequired
+	}
+}
+
+func runWithSessionRotation(ctx context.Context, maxDuration time.Duration, run func(context.Context) error) error {
+	for cycle := 1; ; cycle++ {
+		currentCycle := cycle
+		runCtx, cancel := context.WithCancel(ctx)
+		var rotated atomic.Bool
+		timer := time.AfterFunc(maxDuration, func() {
+			rotated.Store(true)
+			logger.Infof("session max duration reached: duration=%s cycle=%d", maxDuration, currentCycle)
+			cancel()
+		})
+
+		err := run(runCtx)
+		cancel()
+		timer.Stop()
+		if ctx.Err() != nil {
+			return nil
+		}
+		if rotated.Load() {
+			if err != nil {
+				logger.Warnf("session rotation ended with error: cycle=%d err=%v", currentCycle, err)
+			}
+			logger.Infof("session rotation restarting: next_cycle=%d", currentCycle+1)
+			if err := waitSessionRestart(ctx); err != nil {
+				return nil
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		logger.Infof("session ended cleanly with lifecycle rotation enabled: next_cycle=%d", currentCycle+1)
+		if err := waitSessionRestart(ctx); err != nil {
+			return nil
+		}
+	}
+}
+
+func waitSessionRestart(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(sessionRestartDelay):
+		return nil
 	}
 }
 

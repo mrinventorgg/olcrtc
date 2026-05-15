@@ -34,6 +34,7 @@ olcrtc /etc/olcrtc/server.yaml
 | `liveness.interval`                                              | control-stream ping interval, default `10s`               |
 | `liveness.timeout`                                               | pong timeout, default `5s`                                |
 | `liveness.failures`                                              | missed pongs before reconnect, default `3`                |
+| `lifecycle.max_session_duration`                                 | planned session rebuild interval, e.g. `6h`; unset = off  |
 | `gen.amount`                                                     | gen mode: number of rooms to create                       |
 | `profiles[]`                                                     | ordered srv/cnc failover profiles                         |
 | `failover.retry_delay`                                           | delay before trying the next profile, e.g. `2s`           |
@@ -66,6 +67,24 @@ liveness:
 When the failure threshold is reached, the current smux session is rebuilt.
 In failover mode, a profile that exits after liveness-triggered reconnect
 failure lets the supervisor advance to the next profile.
+
+## Lifecycle Rotation
+
+`lifecycle.max_session_duration` sets a planned upper bound for one provider
+call/session. When the duration expires, olcrtc cancels the active server or
+client session and starts a fresh one with the same config. While this option
+is enabled, clean session endings are also restarted so the peer that did not
+fire the timer can follow the rebuild. This is useful for long-running
+deployments where provider calls get stale, accumulate media state, or should
+be periodically re-created.
+
+```yaml
+lifecycle:
+  max_session_duration: 6h
+```
+
+The field is optional and disabled when omitted. Values use Go duration syntax
+such as `30m`, `2h`, or `6h`; zero and negative durations are rejected.
 
 ## Failover Profiles
 
