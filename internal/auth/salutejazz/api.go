@@ -120,7 +120,7 @@ func createMeeting(ctx context.Context, headers map[string]string) (*createRespo
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, protect.StatusError(errCreateRoomFailed, resp, 1024)
+		return nil, fmt.Errorf("create room status: %w", protect.StatusError(errCreateRoomFailed, resp, 1024))
 	}
 
 	var res createResponse
@@ -172,7 +172,7 @@ func preconnect(ctx context.Context, roomID, password string, headers map[string
 	defer func() { _ = preResp.Body.Close() }()
 
 	if preResp.StatusCode != http.StatusOK {
-		return "", protect.StatusError(errPreconnectFailed, preResp, 1024)
+		return "", fmt.Errorf("preconnect status: %w", protect.StatusError(errPreconnectFailed, preResp, 1024))
 	}
 
 	var preconnectResp struct {

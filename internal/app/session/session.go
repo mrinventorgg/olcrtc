@@ -56,7 +56,7 @@ const (
 	defaultSEIAckTimeoutMS = 2000
 )
 
-var sessionRestartDelay = 2 * time.Second
+var sessionRestartDelay = 2 * time.Second //nolint:gochecknoglobals // tests shorten lifecycle rotation delay
 
 var (
 	// ErrRoomIDRequired indicates that a room id is required for the selected carrier.
@@ -147,6 +147,8 @@ var (
 	// ErrTrafficMaxDelayInvalid indicates that traffic.max_delay is not a non-negative duration.
 	ErrTrafficMaxDelayInvalid = errors.New(
 		"invalid traffic max delay (set traffic.max_delay to a duration >= 0 and >= traffic.min_delay)")
+	errPositiveDuration    = errors.New("duration must be > 0")
+	errNonNegativeDuration = errors.New("duration must be >= 0")
 )
 
 // Config holds runtime session settings.
@@ -264,20 +266,15 @@ func applyVideoDefaults(cfg Config) Config {
 	if cfg.VideoCodec == "" {
 		cfg.VideoCodec = videoCodecQRCode
 	}
+	width := defaultVideoWidth
 	if cfg.VideoCodec == videoCodecTile {
-		if cfg.VideoWidth == 0 {
-			cfg.VideoWidth = 1080
-		}
-		if cfg.VideoHeight == 0 {
-			cfg.VideoHeight = 1080
-		}
-	} else {
-		if cfg.VideoWidth == 0 {
-			cfg.VideoWidth = defaultVideoWidth
-		}
-		if cfg.VideoHeight == 0 {
-			cfg.VideoHeight = defaultVideoHeight
-		}
+		width = defaultVideoHeight
+	}
+	if cfg.VideoWidth == 0 {
+		cfg.VideoWidth = width
+	}
+	if cfg.VideoHeight == 0 {
+		cfg.VideoHeight = defaultVideoHeight
 	}
 	if cfg.VideoFPS == 0 {
 		cfg.VideoFPS = defaultVideoFPS
@@ -490,10 +487,10 @@ func validateModeConfig(cfg Config) error {
 
 func validateLivenessConfig(cfg Config) error {
 	if _, err := parseLivenessDuration(cfg.LivenessInterval, control.DefaultInterval); err != nil {
-		return fmt.Errorf("%w: %v", ErrLivenessIntervalInvalid, err)
+		return fmt.Errorf("%w: %w", ErrLivenessIntervalInvalid, err)
 	}
 	if _, err := parseLivenessDuration(cfg.LivenessTimeout, control.DefaultTimeout); err != nil {
-		return fmt.Errorf("%w: %v", ErrLivenessTimeoutInvalid, err)
+		return fmt.Errorf("%w: %w", ErrLivenessTimeoutInvalid, err)
 	}
 	if cfg.LivenessFailures < 0 {
 		return ErrLivenessFailuresInvalid
@@ -514,10 +511,10 @@ func parseLivenessDuration(value string, def time.Duration) (time.Duration, erro
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse duration: %w", err)
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("duration must be > 0")
+		return 0, errPositiveDuration
 	}
 	return d, nil
 }
@@ -525,11 +522,11 @@ func parseLivenessDuration(value string, def time.Duration) (time.Duration, erro
 func livenessConfig(cfg Config) (control.Config, error) {
 	interval, err := parseLivenessDuration(cfg.LivenessInterval, control.DefaultInterval)
 	if err != nil {
-		return control.Config{}, fmt.Errorf("%w: %v", ErrLivenessIntervalInvalid, err)
+		return control.Config{}, fmt.Errorf("%w: %w", ErrLivenessIntervalInvalid, err)
 	}
 	timeout, err := parseLivenessDuration(cfg.LivenessTimeout, control.DefaultTimeout)
 	if err != nil {
-		return control.Config{}, fmt.Errorf("%w: %v", ErrLivenessTimeoutInvalid, err)
+		return control.Config{}, fmt.Errorf("%w: %w", ErrLivenessTimeoutInvalid, err)
 	}
 	failures := cfg.LivenessFailures
 	if failures == 0 {
@@ -547,7 +544,7 @@ func maxSessionDuration(cfg Config) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(cfg.MaxSessionDuration)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrLifecycleMaxSessionDurationInvalid, err)
+		return 0, fmt.Errorf("%w: %w", ErrLifecycleMaxSessionDurationInvalid, err)
 	}
 	if d <= 0 {
 		return 0, ErrLifecycleMaxSessionDurationInvalid
@@ -567,11 +564,11 @@ func trafficConfig(cfg Config) (transport.TrafficConfig, error) {
 	}
 	minDelay, err := parseOptionalNonNegativeDuration(cfg.TrafficMinDelay)
 	if err != nil {
-		return transport.TrafficConfig{}, fmt.Errorf("%w: %v", ErrTrafficMinDelayInvalid, err)
+		return transport.TrafficConfig{}, fmt.Errorf("%w: %w", ErrTrafficMinDelayInvalid, err)
 	}
 	maxDelay, err := parseOptionalNonNegativeDuration(cfg.TrafficMaxDelay)
 	if err != nil {
-		return transport.TrafficConfig{}, fmt.Errorf("%w: %v", ErrTrafficMaxDelayInvalid, err)
+		return transport.TrafficConfig{}, fmt.Errorf("%w: %w", ErrTrafficMaxDelayInvalid, err)
 	}
 	if maxDelay > 0 && maxDelay < minDelay {
 		return transport.TrafficConfig{}, ErrTrafficMaxDelayInvalid
@@ -589,10 +586,10 @@ func parseOptionalNonNegativeDuration(value string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse duration: %w", err)
 	}
 	if d < 0 {
-		return 0, fmt.Errorf("duration must be >= 0")
+		return 0, errNonNegativeDuration
 	}
 	return d, nil
 }
@@ -740,7 +737,7 @@ func runWithSessionRotation(ctx context.Context, maxDuration time.Duration, run 
 		cancel()
 		timer.Stop()
 		if ctx.Err() != nil {
-			return nil
+			return nil //nolint:nilerr // parent cancellation is normal shutdown for rotation
 		}
 		if rotated.Load() {
 			if err != nil {
@@ -748,7 +745,7 @@ func runWithSessionRotation(ctx context.Context, maxDuration time.Duration, run 
 			}
 			logger.Infof("session rotation restarting: next_cycle=%d", currentCycle+1)
 			if err := waitSessionRestart(ctx); err != nil {
-				return nil
+				return nil //nolint:nilerr // canceled restart delay means normal shutdown
 			}
 			continue
 		}
@@ -757,7 +754,7 @@ func runWithSessionRotation(ctx context.Context, maxDuration time.Duration, run 
 		}
 		logger.Infof("session ended cleanly with lifecycle rotation enabled: next_cycle=%d", currentCycle+1)
 		if err := waitSessionRestart(ctx); err != nil {
-			return nil
+			return nil //nolint:nilerr // canceled restart delay means normal shutdown
 		}
 	}
 }
@@ -765,7 +762,7 @@ func runWithSessionRotation(ctx context.Context, maxDuration time.Duration, run 
 func waitSessionRestart(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("restart delay canceled: %w", ctx.Err())
 	case <-time.After(sessionRestartDelay):
 		return nil
 	}

@@ -139,6 +139,7 @@ func TestApplyCLIWins(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // profile merge fixture intentionally checks many mapped fields
 func TestLoadAndApplyProfile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "olcrtc.yaml")

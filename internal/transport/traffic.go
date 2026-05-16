@@ -9,7 +9,14 @@ import (
 	"time"
 )
 
+// ErrTrafficPayloadTooLarge is returned when Send receives a payload above the configured cap.
 var ErrTrafficPayloadTooLarge = errors.New("traffic payload exceeds max_payload_size")
+
+var (
+	errTrafficConnect = errors.New("traffic connect failed")
+	errTrafficSend    = errors.New("traffic send failed")
+	errTrafficClose   = errors.New("traffic close failed")
+)
 
 type trafficTransport struct {
 	inner          Transport
@@ -43,7 +50,12 @@ func effectiveTrafficConfig(features Features, cfg TrafficConfig) TrafficConfig 
 	return cfg
 }
 
-func (t *trafficTransport) Connect(ctx context.Context) error { return t.inner.Connect(ctx) }
+func (t *trafficTransport) Connect(ctx context.Context) error {
+	if err := t.inner.Connect(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errTrafficConnect, err)
+	}
+	return nil
+}
 
 func (t *trafficTransport) Send(data []byte) error {
 	t.sendMu.Lock()
@@ -54,10 +66,18 @@ func (t *trafficTransport) Send(data []byte) error {
 	if delay := t.nextDelay(); delay > 0 {
 		time.Sleep(delay)
 	}
-	return t.inner.Send(data)
+	if err := t.inner.Send(data); err != nil {
+		return fmt.Errorf("%w: %w", errTrafficSend, err)
+	}
+	return nil
 }
 
-func (t *trafficTransport) Close() error { return t.inner.Close() }
+func (t *trafficTransport) Close() error {
+	if err := t.inner.Close(); err != nil {
+		return fmt.Errorf("%w: %w", errTrafficClose, err)
+	}
+	return nil
+}
 
 func (t *trafficTransport) SetReconnectCallback(cb func()) { t.inner.SetReconnectCallback(cb) }
 

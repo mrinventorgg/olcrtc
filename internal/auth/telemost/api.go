@@ -68,7 +68,7 @@ func GetConnectionInfo(ctx context.Context, roomURL, displayName string) (*Conne
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, protect.StatusError(ErrAPI, resp, 4096)
+		return nil, fmt.Errorf("telemost api status: %w", protect.StatusError(ErrAPI, resp, 4096))
 	}
 
 	var info ConnectionInfo

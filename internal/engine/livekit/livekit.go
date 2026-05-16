@@ -46,8 +46,8 @@ var (
 )
 
 type roomHandle interface {
-	publishData([]byte) error
-	publishTrack(webrtc.TrackLocal) error
+	publishData(data []byte) error
+	publishTrack(track webrtc.TrackLocal) error
 	unpublishLocalTracks()
 	disconnect()
 	connectionState() lksdk.ConnectionState
@@ -58,16 +58,22 @@ type sdkRoom struct {
 }
 
 func (r *sdkRoom) publishData(data []byte) error {
-	return r.room.LocalParticipant.PublishDataPacket(
+	if err := r.room.LocalParticipant.PublishDataPacket(
 		lksdk.UserData(data),
 		lksdk.WithDataPublishTopic(dataPublishTopic),
 		lksdk.WithDataPublishReliable(true),
-	)
+	); err != nil {
+		return fmt.Errorf("publish data packet: %w", err)
+	}
+	return nil
 }
 
 func (r *sdkRoom) publishTrack(track webrtc.TrackLocal) error {
 	_, err := r.room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{Name: videoTrackName})
-	return err
+	if err != nil {
+		return fmt.Errorf("publish track: %w", err)
+	}
+	return nil
 }
 
 func (r *sdkRoom) unpublishLocalTracks() {
@@ -108,7 +114,7 @@ func connectSDKRoom(url, token string, callback *lksdk.RoomCallback) (roomHandle
 		lksdk.WithLogger(protoLogger.GetDiscardLogger()),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect to livekit room: %w", err)
 	}
 	return &sdkRoom{room: room}, nil
 }

@@ -11,6 +11,12 @@ import (
 
 var errRunnerBoom = errors.New("boom")
 
+const (
+	testProfileFirst  = "first"
+	testProfileSecond = "second"
+	testProfileOne    = "one"
+)
+
 func TestRunRequiresProfiles(t *testing.T) {
 	err := Run(context.Background(), Config{}, func(context.Context, session.Config) error { return nil })
 	if !errors.Is(err, ErrNoProfiles) {
@@ -20,8 +26,8 @@ func TestRunRequiresProfiles(t *testing.T) {
 
 func TestRunAdvancesProfilesAndStopsAtMaxCycles(t *testing.T) {
 	profiles := []Profile{
-		{Name: "first", Config: session.Config{Auth: "wbstream"}},
-		{Name: "second", Config: session.Config{Auth: "jitsi"}},
+		{Name: testProfileFirst, Config: session.Config{Auth: "wbstream"}},
+		{Name: testProfileSecond, Config: session.Config{Auth: "jitsi"}},
 	}
 	var started []string
 	var ended []string
@@ -50,18 +56,19 @@ func TestRunAdvancesProfilesAndStopsAtMaxCycles(t *testing.T) {
 	if !errors.Is(err, ErrMaxCyclesExceeded) {
 		t.Fatalf("Run() error = %v, want %v", err, ErrMaxCyclesExceeded)
 	}
-	if got, want := started, []string{"first", "second"}; !equalStrings(got, want) {
+	if got, want := started, []string{testProfileFirst, testProfileSecond}; !equalStrings(got, want) {
 		t.Fatalf("started = %v, want %v", got, want)
 	}
-	if got, want := ended, []string{"first", "second"}; !equalStrings(got, want) {
+	if got, want := ended, []string{testProfileFirst, testProfileSecond}; !equalStrings(got, want) {
 		t.Fatalf("ended = %v, want %v", got, want)
 	}
 }
 
+//nolint:cyclop // status history test verifies one complete failover cycle
 func TestRunEmitsStatusHistory(t *testing.T) {
 	profiles := []Profile{
-		{Name: "first", Config: session.Config{Auth: "wbstream"}},
-		{Name: "second", Config: session.Config{Auth: "jitsi"}},
+		{Name: testProfileFirst, Config: session.Config{Auth: "wbstream"}},
+		{Name: testProfileSecond, Config: session.Config{Auth: "jitsi"}},
 	}
 	var snapshots []Status
 	err := Run(context.Background(), Config{
@@ -73,7 +80,7 @@ func TestRunEmitsStatusHistory(t *testing.T) {
 			snapshots = append(snapshots, status)
 		},
 	}, func(_ context.Context, cfg session.Config) error {
-		if cfg.Auth == "first" {
+		if cfg.Auth == testProfileFirst {
 			t.Fatal("runner received profile name instead of config")
 		}
 		return errRunnerBoom
@@ -85,7 +92,7 @@ func TestRunEmitsStatusHistory(t *testing.T) {
 		t.Fatalf("status snapshots = %d, want 4", len(snapshots))
 	}
 	first := snapshots[0]
-	if first.ActiveProfile != "first" || first.ActiveProfileIndex != 0 || first.Cycle != 1 {
+	if first.ActiveProfile != testProfileFirst || first.ActiveProfileIndex != 0 || first.Cycle != 1 {
 		t.Fatalf("first status = %+v", first)
 	}
 	if first.Profiles[0].Starts != 1 || first.Profiles[0].LastStarted.IsZero() {
@@ -104,10 +111,10 @@ func TestRunEmitsStatusHistory(t *testing.T) {
 	if len(last.History) != 3 {
 		t.Fatalf("history length = %d, want 3", len(last.History))
 	}
-	if last.History[0].Type != EventProfileEnd || last.History[0].Profile != "first" {
+	if last.History[0].Type != EventProfileEnd || last.History[0].Profile != testProfileFirst {
 		t.Fatalf("oldest bounded history event = %+v", last.History[0])
 	}
-	if last.History[2].Type != EventProfileEnd || last.History[2].Profile != "second" ||
+	if last.History[2].Type != EventProfileEnd || last.History[2].Profile != testProfileSecond ||
 		last.History[2].Error == "" {
 		t.Fatalf("last history event = %+v", last.History[2])
 	}
@@ -117,7 +124,7 @@ func TestRunStatusSnapshotIsImmutable(t *testing.T) {
 	var first Status
 	var second Status
 	err := Run(context.Background(), Config{
-		Profiles:   []Profile{{Name: "one"}},
+		Profiles:   []Profile{{Name: testProfileOne}},
 		RetryDelay: -1,
 		MaxCycles:  1,
 		OnStatus: func(status Status) {
@@ -138,7 +145,7 @@ func TestRunStatusSnapshotIsImmutable(t *testing.T) {
 	if first.Profiles[0].Starts != 99 || first.History[0].Profile != "mutated" {
 		t.Fatalf("test mutation did not apply to snapshot: %+v", first)
 	}
-	if second.Profiles[0].Starts != 1 || second.History[0].Profile != "one" {
+	if second.Profiles[0].Starts != 1 || second.History[0].Profile != testProfileOne {
 		t.Fatalf("snapshot mutation leaked into later status: %+v", second)
 	}
 }
@@ -146,7 +153,7 @@ func TestRunStatusSnapshotIsImmutable(t *testing.T) {
 func TestRunReturnsNilOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	err := Run(ctx, Config{
-		Profiles:   []Profile{{Name: "one"}},
+		Profiles:   []Profile{{Name: testProfileOne}},
 		RetryDelay: time.Hour,
 	}, func(context.Context, session.Config) error {
 		cancel()

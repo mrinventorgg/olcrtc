@@ -114,7 +114,11 @@ func TestNewForwardsConfigAndMethods(t *testing.T) {
 	if !ln.CanSend() {
 		t.Fatal("CanSend() = false, want true")
 	}
-	if features := ln.(link.FeaturesProvider).Features(); features.MaxPayloadSize != 4096 {
+	provider, ok := ln.(link.FeaturesProvider)
+	if !ok {
+		t.Fatalf("New() type = %T, want link.FeaturesProvider", ln)
+	}
+	if features := provider.Features(); features.MaxPayloadSize != 4096 {
 		t.Fatalf("Features() = %+v, want shaped max payload 4096", features)
 	}
 }

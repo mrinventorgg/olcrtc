@@ -1218,13 +1218,14 @@ func TestSupervisorFailoverProfilesReachWorkingSOCKS(t *testing.T) {
 	var readyOnce sync.Once
 	clientErr := make(chan error, 1)
 	go func() {
-		clientErr <- supervisor.Run(ctx, failoverE2EConfig(clientProfiles, started, "client"), func(ctx context.Context, cfg session.Config) error {
+		runClientProfile := func(ctx context.Context, cfg session.Config) error {
 			return client.RunWithReady(ctx, clientConfigFromSession(cfg, socksAddr), func() {
 				if cfg.Auth == memoryCarrier {
 					readyOnce.Do(func() { close(ready) })
 				}
 			})
-		})
+		}
+		clientErr <- supervisor.Run(ctx, failoverE2EConfig(clientProfiles, started, "client"), runClientProfile)
 	}()
 
 	waitForReady(t, ready)

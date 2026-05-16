@@ -10,7 +10,10 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/app/session"
 )
 
+// DefaultRetryDelay is used between profile attempts when Config.RetryDelay is unset.
 const DefaultRetryDelay = 2 * time.Second
+
+// DefaultHistoryLimit bounds emitted status history when Config.HistoryLimit is unset.
 const DefaultHistoryLimit = 20
 
 const (
@@ -25,6 +28,7 @@ var (
 	ErrNoProfiles = errors.New("supervisor: no profiles configured")
 	// ErrMaxCyclesExceeded is returned after MaxCycles complete profile-list passes.
 	ErrMaxCyclesExceeded = errors.New("supervisor: max failover cycles exceeded")
+	errProfileCleanEnd   = errors.New("profile ended")
 )
 
 // Profile is one runnable session configuration in an ordered failover list.
@@ -91,37 +95,70 @@ func Run(ctx context.Context, cfg Config, run Runner) error {
 
 	var lastErr error
 	for cycle := 1; ; cycle++ {
-		for i, profile := range cfg.Profiles {
-			if ctx.Err() != nil {
-				return nil
-			}
-			state.start(i, cycle)
-			if cfg.OnProfileStart != nil {
-				cfg.OnProfileStart(profile, cycle)
-			}
-
-			err := run(ctx, profile.Config)
-			if ctx.Err() != nil {
-				return nil
-			}
-			if err != nil {
-				lastErr = fmt.Errorf("profile %q: %w", profile.Name, err)
-			} else {
-				lastErr = fmt.Errorf("profile %q ended", profile.Name)
-			}
-			state.end(i, cycle, err)
-			if cfg.OnProfileEnd != nil {
-				cfg.OnProfileEnd(profile, cycle, err)
-			}
-
-			if cfg.MaxCycles > 0 && cycle >= cfg.MaxCycles && i == len(cfg.Profiles)-1 {
-				return fmt.Errorf("%w after %d cycle(s): %w", ErrMaxCyclesExceeded, cycle, lastErr)
-			}
-			if err := waitRetryDelay(ctx, cfg.RetryDelay); err != nil {
-				return nil
-			}
+		if err := runCycle(ctx, cfg, run, state, cycle, &lastErr); err != nil {
+			return err
 		}
 	}
+}
+
+func runCycle(
+	ctx context.Context,
+	cfg Config,
+	run Runner,
+	state *statusTracker,
+	cycle int,
+	lastErr *error,
+) error {
+	for i, profile := range cfg.Profiles {
+		if err := runProfile(ctx, cfg, run, state, cycle, i, profile, lastErr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runProfile(
+	ctx context.Context,
+	cfg Config,
+	run Runner,
+	state *statusTracker,
+	cycle int,
+	profileIndex int,
+	profile Profile,
+	lastErr *error,
+) error {
+	if ctx.Err() != nil {
+		return nil //nolint:nilerr // context cancellation is normal supervisor shutdown
+	}
+	state.start(profileIndex, cycle)
+	if cfg.OnProfileStart != nil {
+		cfg.OnProfileStart(profile, cycle)
+	}
+
+	err := run(ctx, profile.Config)
+	if ctx.Err() != nil {
+		return nil //nolint:nilerr // context cancellation is normal supervisor shutdown
+	}
+	*lastErr = profileResultError(profile.Name, err)
+	state.end(profileIndex, cycle, err)
+	if cfg.OnProfileEnd != nil {
+		cfg.OnProfileEnd(profile, cycle, err)
+	}
+
+	if cfg.MaxCycles > 0 && cycle >= cfg.MaxCycles && profileIndex == len(cfg.Profiles)-1 {
+		return fmt.Errorf("%w after %d cycle(s): %w", ErrMaxCyclesExceeded, cycle, *lastErr)
+	}
+	if err := waitRetryDelay(ctx, cfg.RetryDelay); err != nil {
+		return nil //nolint:nilerr // context cancellation during retry delay is normal shutdown
+	}
+	return nil
+}
+
+func profileResultError(name string, err error) error {
+	if err != nil {
+		return fmt.Errorf("profile %q: %w", name, err)
+	}
+	return fmt.Errorf("profile %q: %w", name, errProfileCleanEnd)
 }
 
 type statusTracker struct {
@@ -222,7 +259,7 @@ func waitRetryDelay(ctx context.Context, delay time.Duration) error {
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("retry delay canceled: %w", ctx.Err())
 	case <-timer.C:
 		return nil
 	}

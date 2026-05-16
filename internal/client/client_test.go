@@ -524,6 +524,7 @@ func TestShutdownClosesLinkAndConn(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // integration-style control loop test needs setup and async assertions together
 func TestStartControlLoopReportsPong(t *testing.T) {
 	a, b := net.Pipe()
 	defer func() {

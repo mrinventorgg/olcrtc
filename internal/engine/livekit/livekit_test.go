@@ -12,6 +12,13 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+const (
+	testOldURL   = "wss://old"
+	testOldToken = "old-token"
+)
+
+var errFakeConnect = errors.New("boom")
+
 type fakeRoom struct {
 	mu           sync.Mutex
 	state        lksdk.ConnectionState
@@ -123,14 +130,15 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition was not met before timeout")
 }
 
+//nolint:cyclop // reconnect flow test keeps setup and postconditions in one scenario
 func TestReconnectRefreshesCredentialsAndReplacesRoom(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	refreshes := 0
 	sess, err := New(ctx, engine.Config{
-		URL:   "wss://old",
-		Token: "old-token",
+		URL:   testOldURL,
+		Token: testOldToken,
 		Refresh: func(context.Context) (engine.Credentials, error) {
 			refreshes++
 			return engine.Credentials{URL: "wss://new", Token: "new-token"}, nil
@@ -139,7 +147,10 @@ func TestReconnectRefreshesCredentialsAndReplacesRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	s := sess.(*Session)
+	s, ok := sess.(*Session)
+	if !ok {
+		t.Fatalf("New() type = %T, want *Session", sess)
+	}
 	connector := newFakeConnector()
 	s.connectRoom = connector.connect
 
@@ -163,10 +174,10 @@ func TestReconnectRefreshesCredentialsAndReplacesRoom(t *testing.T) {
 	}
 
 	urls, tokens := connector.snapshot()
-	if got, want := urls, []string{"wss://old", "wss://new"}; !equalStrings(got, want) {
+	if got, want := urls, []string{testOldURL, "wss://new"}; !equalStrings(got, want) {
 		t.Fatalf("connect urls = %v, want %v", got, want)
 	}
-	if got, want := tokens, []string{"old-token", "new-token"}; !equalStrings(got, want) {
+	if got, want := tokens, []string{testOldToken, "new-token"}; !equalStrings(got, want) {
 		t.Fatalf("connect tokens = %v, want %v", got, want)
 	}
 	if refreshes != 1 {
@@ -188,13 +199,17 @@ func TestReconnectRefreshesCredentialsAndReplacesRoom(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // terminal disconnect test keeps setup and cleanup assertions together
 func TestDisconnectedEndsWhenReconnectDisallowed(t *testing.T) {
 	ctx := context.Background()
-	sess, err := New(ctx, engine.Config{URL: "wss://old", Token: "old-token"})
+	sess, err := New(ctx, engine.Config{URL: testOldURL, Token: testOldToken})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	s := sess.(*Session)
+	s, ok := sess.(*Session)
+	if !ok {
+		t.Fatalf("New() type = %T, want *Session", sess)
+	}
 	connector := newFakeConnector()
 	s.connectRoom = connector.connect
 	s.SetShouldReconnect(func() bool { return false })
@@ -264,7 +279,7 @@ func TestCanSendRequiresConnectedRoomAndQueueHeadroom(t *testing.T) {
 		t.Fatal("CanSend() = false for connected room")
 	}
 
-	for i := 0; i < defaultSendQueueCapHard; i++ {
+	for range defaultSendQueueCapHard {
 		s.sendQueue <- []byte("x")
 	}
 	if s.CanSend() {
@@ -277,11 +292,11 @@ func TestReconnectFailureRetriesUntilContextDone(t *testing.T) {
 	defer cancel()
 
 	s := &Session{
-		url:   "wss://old",
-		token: "old-token",
+		url:   testOldURL,
+		token: testOldToken,
 		connectRoom: func(string, string, *lksdk.RoomCallback) (roomHandle, error) {
 			cancel()
-			return nil, errors.New("boom")
+			return nil, errFakeConnect
 		},
 		reconnectCh: make(chan struct{}, 1),
 		closeCh:     make(chan struct{}),

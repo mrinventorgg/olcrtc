@@ -160,7 +160,7 @@ func (s *state) readLoop(ctx context.Context) error {
 		raw, err := readFrame(s.rw)
 		if err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return fmt.Errorf("read loop canceled: %w", ctx.Err())
 			}
 			return err
 		}
@@ -177,7 +177,7 @@ func (s *state) readLoop(ctx context.Context) error {
 				SentUnixNano: msg.SentUnixNano,
 			}); err != nil {
 				if ctx.Err() != nil {
-					return ctx.Err()
+					return fmt.Errorf("read loop canceled: %w", ctx.Err())
 				}
 				return err
 			}
@@ -196,7 +196,7 @@ func (s *state) probeLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("probe loop canceled: %w", ctx.Err())
 		case <-ticker.C:
 			if err := s.sendProbe(ctx); err != nil {
 				return err
@@ -270,7 +270,7 @@ func (s *state) handlePong(msg Message) {
 func (s *state) enqueue(ctx context.Context, msg Message) error {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("enqueue canceled: %w", ctx.Err())
 	case s.out <- msg:
 		return nil
 	}
@@ -280,11 +280,11 @@ func (s *state) writeLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("write loop canceled: %w", ctx.Err())
 		case msg := <-s.out:
 			if err := writeFrame(s.rw, msg); err != nil {
 				if ctx.Err() != nil {
-					return ctx.Err()
+					return fmt.Errorf("write loop canceled: %w", ctx.Err())
 				}
 				return err
 			}

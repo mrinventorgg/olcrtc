@@ -11,6 +11,8 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/crypto"
 )
 
+const testBadDuration = "nope"
+
 func TestApplyTransportDefaults(t *testing.T) {
 	tests := []struct {
 		name string
@@ -42,7 +44,7 @@ func TestApplyTransportDefaults(t *testing.T) {
 				VideoHeight:     1080,
 				VideoFPS:        30,
 				VideoBitrate:    "2M",
-				VideoHW:         "none",
+				VideoHW:         defaultVideoHW,
 				VideoQRRecovery: "low",
 				VideoCodec:      videoCodecQRCode,
 			},
@@ -56,7 +58,7 @@ func TestApplyTransportDefaults(t *testing.T) {
 				VideoHeight:     1080,
 				VideoFPS:        30,
 				VideoBitrate:    "2M",
-				VideoHW:         "none",
+				VideoHW:         defaultVideoHW,
 				VideoQRRecovery: "low",
 				VideoCodec:      videoCodecTile,
 			},
@@ -253,7 +255,7 @@ func TestValidate(t *testing.T) {
 				cfg.VideoHeight = 480
 				cfg.VideoFPS = 30
 				cfg.VideoBitrate = "1M"
-				cfg.VideoHW = "none" //nolint:goconst // test literal, repetition is intentional
+				cfg.VideoHW = defaultVideoHW
 				cfg.VideoCodec = "bogus"
 				return cfg
 			}(),
@@ -314,7 +316,7 @@ func TestValidate(t *testing.T) {
 				cfg.VideoHeight = 480
 				cfg.VideoFPS = 30
 				cfg.VideoBitrate = "1M"
-				cfg.VideoHW = "none"
+				cfg.VideoHW = defaultVideoHW
 				cfg.VideoCodec = "tile"
 				return cfg
 			}(),
@@ -329,7 +331,7 @@ func TestValidate(t *testing.T) {
 				cfg.VideoHeight = 1080
 				cfg.VideoFPS = 30
 				cfg.VideoBitrate = "1M"
-				cfg.VideoHW = "none"
+				cfg.VideoHW = defaultVideoHW
 				cfg.VideoCodec = "tile"
 				return cfg
 			}(),
@@ -474,7 +476,7 @@ func TestValidate(t *testing.T) {
 			name: "liveness rejects bad interval",
 			cfg: func() Config {
 				cfg := base
-				cfg.LivenessInterval = "nope"
+				cfg.LivenessInterval = testBadDuration
 				return cfg
 			}(),
 			want: ErrLivenessIntervalInvalid,
@@ -509,7 +511,7 @@ func TestValidate(t *testing.T) {
 			name: "lifecycle rejects bad max session duration",
 			cfg: func() Config {
 				cfg := base
-				cfg.MaxSessionDuration = "nope"
+				cfg.MaxSessionDuration = testBadDuration
 				return cfg
 			}(),
 			want: ErrLifecycleMaxSessionDurationInvalid,
@@ -555,7 +557,7 @@ func TestValidate(t *testing.T) {
 			name: "traffic rejects bad min delay",
 			cfg: func() Config {
 				cfg := base
-				cfg.TrafficMinDelay = "nope"
+				cfg.TrafficMinDelay = testBadDuration
 				return cfg
 			}(),
 			want: ErrTrafficMinDelayInvalid,

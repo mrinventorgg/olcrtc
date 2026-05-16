@@ -83,7 +83,7 @@ func registerGuest(ctx context.Context, displayName string) (string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", protect.StatusError(errGuestRegister, resp, 4096)
+		return "", fmt.Errorf("guest register status: %w", protect.StatusError(errGuestRegister, resp, 4096))
 	}
 
 	var res guestRegisterResponse
@@ -120,7 +120,7 @@ func createRoom(ctx context.Context, accessToken string) (string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", protect.StatusError(errCreateRoom, resp, 4096)
+		return "", fmt.Errorf("create room status: %w", protect.StatusError(errCreateRoom, resp, 4096))
 	}
 
 	var res createRoomResponse
@@ -148,7 +148,7 @@ func joinRoom(ctx context.Context, accessToken, roomID string) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return protect.StatusError(errJoinRoom, resp, 4096)
+		return fmt.Errorf("join room status: %w", protect.StatusError(errJoinRoom, resp, 4096))
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func getToken(ctx context.Context, accessToken, roomID, displayName string) (tok
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return tokenResponse{}, protect.StatusError(errGetToken, resp, 4096)
+		return tokenResponse{}, fmt.Errorf("get token status: %w", protect.StatusError(errGetToken, resp, 4096))
 	}
 
 	var res tokenResponse

@@ -33,7 +33,7 @@ var (
 			`[^",\s}]+`,
 	)
 	sensitiveBearerRE = regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+`)
-) //nolint:gochecknoglobals // compiled once for provider error redaction
+)
 
 // Protector is called with a socket file descriptor before connect.
 // On Android, this calls VpnService.protect(fd) to bypass VPN routing.

@@ -77,6 +77,7 @@ func TestProtectorAndLogging(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // compact setter smoke test verifies several related defaults together
 func TestDefaultsAndSetters(t *testing.T) {
 	resetMobileGlobals(t)
 
@@ -182,7 +183,8 @@ func TestStartWithInjectedRunnerLifecycle(t *testing.T) {
 			cfg.Liveness.Timeout != 750*time.Millisecond ||
 			cfg.Liveness.Failures != 4 {
 			t.Fatalf(
-				"RunWithReady args mismatch: link=%q transport=%q carrier=%q room=%q client=%q local=%q dns=%q vp8=%d/%d liveness=%+v",
+				"RunWithReady args mismatch: link=%q transport=%q carrier=%q room=%q client=%q "+
+					"local=%q dns=%q vp8=%d/%d liveness=%+v",
 				cfg.Link, cfg.Transport, cfg.Carrier, cfg.RoomURL, cfg.DeviceID,
 				cfg.LocalAddr, cfg.DNSServer, cfg.VP8FPS, cfg.VP8BatchSize, cfg.Liveness,
 			)
