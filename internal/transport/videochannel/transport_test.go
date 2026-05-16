@@ -67,15 +67,24 @@ func TestTransportFrameRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeTransportFrame failed: %v", err)
 	}
-	if decoded.typ != frameTypeData || decoded.role != frameRoleClient ||
-		decoded.binding != 0x12345678 || decoded.seq != 42 || decoded.crc != 0xdeadbeef {
-		t.Fatalf("unexpected frame header: %+v", decoded)
-	}
-	if decoded.totalLen != 1024 || decoded.fragIdx != 1 || decoded.fragTotal != 3 {
-		t.Fatalf("unexpected fragmentation fields: %+v", decoded)
-	}
+	assertFrameHeader(t, decoded, frameTypeData, frameRoleClient, 0x12345678, 42, 0xdeadbeef)
+	assertFrameFragmentation(t, decoded, 1024, 1, 3)
 	if !bytes.Equal(decoded.payload, []byte("chunk")) {
 		t.Fatalf("payload mismatch: got=%q", decoded.payload)
+	}
+}
+
+func assertFrameHeader(t *testing.T, f transportFrame, typ, role byte, binding, seq, crc uint32) {
+	t.Helper()
+	if f.typ != typ || f.role != role || f.binding != binding || f.seq != seq || f.crc != crc {
+		t.Fatalf("unexpected frame header: %+v", f)
+	}
+}
+
+func assertFrameFragmentation(t *testing.T, f transportFrame, totalLen uint32, fragIdx, fragTotal uint16) {
+	t.Helper()
+	if f.totalLen != totalLen || f.fragIdx != fragIdx || f.fragTotal != fragTotal {
+		t.Fatalf("unexpected fragmentation fields: %+v", f)
 	}
 }
 
