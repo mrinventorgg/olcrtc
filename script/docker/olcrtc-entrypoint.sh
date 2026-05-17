@@ -16,15 +16,18 @@ fi
 
 mode="${OLCRTC_MODE:-srv}"
 room_id="${OLCRTC_ROOM_ID:-}"
-carrier="${OLCRTC_CARRIER:-}"
+carrier="${OLCRTC_CARRIER:-${OLCRTC_AUTH:-}}"
 transport="${OLCRTC_TRANSPORT:-}"
-link="${OLCRTC_LINK:-direct}"
 data_dir="${OLCRTC_DATA_DIR:-/usr/share/olcrtc}"
 dns_server="${OLCRTC_DNS:-1.1.1.1:53}"
 key="${OLCRTC_KEY:-}"
 key_file="${OLCRTC_KEY_FILE:-/var/lib/olcrtc/key.hex}"
 socks_proxy="${OLCRTC_SOCKS_PROXY:-}"
 socks_proxy_port="${OLCRTC_SOCKS_PROXY_PORT:-1080}"
+socks_host="${OLCRTC_SOCKS_HOST:-127.0.0.1}"
+socks_port="${OLCRTC_SOCKS_PORT:-8808}"
+socks_user="${OLCRTC_SOCKS_USER:-}"
+socks_pass="${OLCRTC_SOCKS_PASS:-}"
 
 video_w="${OLCRTC_VIDEO_W:-0}"
 video_h="${OLCRTC_VIDEO_H:-0}"
@@ -46,8 +49,12 @@ sei_frag="${OLCRTC_SEI_FRAG:-0}"
 sei_ack="${OLCRTC_SEI_ACK:-0}"
 
 debug="${OLCRTC_DEBUG:-false}"
+ffmpeg="${OLCRTC_FFMPEG:-ffmpeg}"
 
-[ "$mode" = "srv" ] || die "server image defaults to OLCRTC_MODE=srv; got '$mode'"
+case "$mode" in
+    srv|cnc) ;;
+    *) die "set OLCRTC_MODE to srv or cnc" ;;
+esac
 [ -n "$carrier" ] || die "set OLCRTC_CARRIER (e.g. telemost, jazz, wbstream)"
 [ -n "$transport" ] || die "set OLCRTC_TRANSPORT (e.g. datachannel, videochannel, seichannel, vp8channel)"
 
@@ -62,6 +69,7 @@ make_key() {
 if [ -z "$room_id" ]; then
     case "$carrier" in
         jazz)
+            [ "$mode" = "srv" ] || die "set OLCRTC_ROOM_ID to the server room identifier"
             echo "olcrtc-entrypoint: OLCRTC_ROOM_ID not set, generating room..." >&2
             gen_config="/tmp/olcrtc-gen.yaml"
             cat > "$gen_config" <<GENEOF
@@ -88,12 +96,14 @@ fi
 if [ -z "$key" ]; then
     if [ -s "$key_file" ]; then
         key="$(tr -d '[:space:]' < "$key_file")"
-    else
+    elif [ "$mode" = "srv" ]; then
         key="$(make_key)"
         umask 077
         printf '%s\n' "$key" > "$key_file"
         echo "olcrtc-entrypoint: generated encryption key and saved it to $key_file" >&2
         echo "olcrtc-entrypoint: OLCRTC_KEY=$key" >&2
+    else
+        die "set OLCRTC_KEY or mount OLCRTC_KEY_FILE with the server encryption key"
     fi
 fi
 
@@ -106,10 +116,9 @@ esac
 [ "${#key}" -eq 64 ] || die "OLCRTC_KEY must be 64 hex characters"
 
 # Generate YAML config
-config="/tmp/olcrtc-server.yaml"
+config="/tmp/olcrtc-${mode}.yaml"
 cat > "$config" <<EOF
 mode: $mode
-link: $link
 auth:
   provider: "$carrier"
 room:
@@ -122,12 +131,26 @@ net:
 data: "$data_dir"
 EOF
 
-if [ -n "$socks_proxy" ]; then
+if [ "$mode" = "srv" ] && [ -n "$socks_proxy" ]; then
     cat >> "$config" <<EOF
 socks:
   proxy_addr: "$socks_proxy"
   proxy_port: $socks_proxy_port
 EOF
+fi
+
+if [ "$mode" = "cnc" ]; then
+    cat >> "$config" <<EOF
+socks:
+  host: "$socks_host"
+  port: $socks_port
+EOF
+    if [ -n "$socks_user" ]; then
+        cat >> "$config" <<EOF
+  user: "$socks_user"
+  pass: "$socks_pass"
+EOF
+    fi
 fi
 
 if [ "$transport" = "videochannel" ]; then
@@ -169,5 +192,7 @@ case "${debug}" in
         printf 'debug: true\n' >> "$config"
         ;;
 esac
+
+[ -n "$ffmpeg" ] && printf 'ffmpeg: "%s"\n' "$ffmpeg" >> "$config"
 
 exec /usr/local/bin/olcrtc "$config"

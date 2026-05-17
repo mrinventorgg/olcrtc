@@ -6,7 +6,7 @@ set -e
 
 PODMAN_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)
 CONTAINER_NAME="olcrtc-server-$PODMAN_ID"
-IMAGE_NAME="docker.io/library/golang:1.26-alpine"
+IMAGE_NAME="docker.io/library/golang:1.25-alpine3.22"
 REPO_URL="https://github.com/openlibrecommunity/olcrtc.git"
 WORK_DIR="/tmp/olcrtc-deploy-$PODMAN_ID"
 BRANCH="master"
@@ -38,8 +38,13 @@ if ! command -v podman &> /dev/null; then
 
     if [ "$(id -u)" -eq 0 ]; then
         SUDO=""
-    else
+    elif command -v sudo &> /dev/null; then
         SUDO="sudo"
+    elif command -v doas &> /dev/null; then
+        SUDO="doas"
+    else
+        echo "[X] No sudo/doas found and not running as root. Cannot install podman."
+        exit 1
     fi
 
     if command -v apt &> /dev/null; then
@@ -164,7 +169,7 @@ VIDEO_W=1920; VIDEO_H=1080; VIDEO_FPS=30; VIDEO_BITRATE="2M"; VIDEO_HW="none"
 VIDEO_CODEC="qrcode"; VIDEO_QR_SIZE=0; VIDEO_QR_RECOVERY="low"
 VIDEO_TILE_MODULE=4; VIDEO_TILE_RS=20
 VP8_FPS=25; VP8_BATCH=1
-SEI_FPS=20; SEI_BATCH=1; SEI_FRAG=900; SEI_ACK=3000
+SEI_FPS=60; SEI_BATCH=64; SEI_FRAG=900; SEI_ACK=2000
 
 if [ "$TRANSPORT" = "videochannel" ]; then
     echo ""
@@ -231,23 +236,23 @@ if [ "$TRANSPORT" = "seichannel" ]; then
     echo ""
     echo "--- SEIchannel settings ---"
 
-    read -p "SEI FPS [default: 20]: " SEIFPS_INPUT
-    SEI_FPS=${SEIFPS_INPUT:-20}
+    read -p "SEI FPS [default: 60]: " SEIFPS_INPUT
+    SEI_FPS=${SEIFPS_INPUT:-60}
 
-    read -p "SEI batch size (frames per tick) [default: 1]: " SEIBATCH_INPUT
-    SEI_BATCH=${SEIBATCH_INPUT:-1}
+    read -p "SEI batch size (frames per tick) [default: 64]: " SEIBATCH_INPUT
+    SEI_BATCH=${SEIBATCH_INPUT:-64}
 
     read -p "SEI fragment size in bytes [default: 900]: " SEIFRAG_INPUT
     SEI_FRAG=${SEIFRAG_INPUT:-900}
 
-    read -p "SEI ACK timeout in milliseconds [default: 3000]: " SEIACK_INPUT
-    SEI_ACK=${SEIACK_INPUT:-3000}
+    read -p "SEI ACK timeout in milliseconds [default: 2000]: " SEIACK_INPUT
+    SEI_ACK=${SEIACK_INPUT:-2000}
 fi
 
 echo ""
 echo "[*] Cleaning workspace..."
-rm -rf $WORK_DIR
-mkdir -p $WORK_DIR
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR"
 
 CACHE_DIR="${OLCRTC_CACHE_DIR:-$HOME/.cache/olcrtc}"
 GOMOD_CACHE="$CACHE_DIR/gomod"
@@ -269,20 +274,20 @@ mkdir -p "$GOMOD_CACHE" "$GO_BUILD_CACHE"
 echo "[*] Using Go cache: $CACHE_DIR"
 
 echo "[*] Cloning repository..."
-git clone --depth 1 --recurse-submodules --branch "$BRANCH" $REPO_URL $WORK_DIR
+git clone --depth 1 --recurse-submodules --branch "$BRANCH" "$REPO_URL" "$WORK_DIR"
 
 echo "[*] Pulling Go image..."
-podman pull $IMAGE_NAME
+podman pull "$IMAGE_NAME"
 
 echo "[*] Building OlcRTC..."
 podman run --rm \
     --network host \
-    -v $WORK_DIR:/app:Z \
-    -v $GOMOD_CACHE:/go/pkg/mod:Z \
-    -v $GO_BUILD_CACHE:/root/.cache/go-build:Z \
+    -v "$WORK_DIR":/app:Z \
+    -v "$GOMOD_CACHE":/go/pkg/mod:Z \
+    -v "$GO_BUILD_CACHE":/root/.cache/go-build:Z \
     -w /app \
-    $IMAGE_NAME \
-    sh -c "go mod tidy && go build -o olcrtc cmd/olcrtc/main.go"
+    "$IMAGE_NAME" \
+    sh -c "go mod download && go build -trimpath -ldflags='-s -w' -o olcrtc ./cmd/olcrtc"
 
 if [ ! -f "$WORK_DIR/olcrtc" ]; then
     echo "[X] Build failed"
@@ -304,9 +309,9 @@ data: data
 GENEOF
     ROOM_ID=$(podman run --rm \
         --network host \
-        -v $WORK_DIR:/app:Z \
+        -v "$WORK_DIR":/app:Z \
         -w /app \
-        $IMAGE_NAME \
+        "$IMAGE_NAME" \
         ./olcrtc gen.yaml)
     if [ -z "$ROOM_ID" ]; then
         echo "[X] Room generation failed"
@@ -337,7 +342,6 @@ fi
 CONFIG_FILE="$WORK_DIR/server.yaml"
 cat > "$CONFIG_FILE" <<EOF
 mode: srv
-link: direct
 auth:
   provider: "$CARRIER"
 room:
@@ -397,14 +401,18 @@ debug: false
 EOF
 
 echo "[*] Starting OlcRTC server..."
+START_CMD="./olcrtc server.yaml"
+if [ "$TRANSPORT" = "videochannel" ]; then
+    START_CMD="apk add --no-cache ffmpeg >/dev/null && ./olcrtc server.yaml"
+fi
 podman run -d \
     --network host \
-    --name $CONTAINER_NAME \
+    --name "$CONTAINER_NAME" \
     --restart unless-stopped \
-    -v $WORK_DIR:/app:Z \
+    -v "$WORK_DIR":/app:Z \
     -w /app \
-    $IMAGE_NAME \
-    ./olcrtc server.yaml
+    "$IMAGE_NAME" \
+    sh -c "$START_CMD"
 
 read -p "Enter a comment for the config (default: olc - t.me/openlibrecommunity): " sub_configname
 if [ -z "$sub_configname" ]; then
