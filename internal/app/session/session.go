@@ -619,7 +619,27 @@ func Run(ctx context.Context, cfg Config) error {
 	if maxDuration > 0 {
 		return runWithSessionRotation(ctx, maxDuration, run)
 	}
-	return run(ctx)
+	for {
+    	if ctx.Err() != nil {
+        	return nil
+    	}
+
+    	err := run(ctx)
+
+    	if ctx.Err() != nil {
+        	return nil
+    	}
+		
+		if errors.Is(err, context.Canceled) {
+		    return nil
+		}
+
+    	logger.Warnf("Session stopped: %v", err)
+
+    	if err := waitSessionRestart(ctx); err != nil {
+        	return nil
+    	}
+	}
 }
 
 func configureDefaultResolver(dnsServer string) {
