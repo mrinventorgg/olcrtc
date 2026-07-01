@@ -102,27 +102,21 @@ echo "======================================"
 echo "Настройка сервера"
 echo "======================================"
 
-while true; do
-    printf "Введите URL комнаты Jitsi: "
-    IFS= read -r ROOM_ID
+exec 3</dev/tty
 
-    if [[ -n "$ROOM_ID" ]]; then
-        break
-    fi
+ROOM_ID=""
 
-    echo "URL комнаты не может быть пустым."
+while [[ -z "$ROOM_ID" ]]; do
+    printf "Введите URL комнаты Jitsi: " >/dev/tty
+    IFS= read -r ROOM_ID <&3
 done
 
-while true; do
-    printf "Введите ключ шифрования: "
-    IFS= read -rs CRYPTO_KEY
-    echo
+CRYPTO_KEY=""
 
-    if [[ -n "$CRYPTO_KEY" ]]; then
-        break
-    fi
-
-    echo "Ключ не может быть пустым."
+while [[ -z "$CRYPTO_KEY" ]]; do
+    printf "Введите ключ шифрования: " >/dev/tty
+    IFS= read -rs CRYPTO_KEY <&3
+    echo >/dev/tty
 done
 
 cat > server.yaml <<'EOF'
