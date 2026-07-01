@@ -18,6 +18,12 @@ app -> SOCKS5 -> olcrtc cnc -> WebRTC/SFU service -> olcrtc srv -> internet
 
 Recommended start: `jitsi + datachannel`.
 
+## Quick start using a single command (jitsi)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mrinventorgg/olcrtc/master/install.sh | sudo bash
+```
+
 ## Quick start
 
 You need Go 1.26+ and mage.
@@ -72,7 +78,7 @@ mage lint    # golangci-lint
 mage mobile  # gomobile bindings (Android)
 ```
 
-## Community
+## Client
 
 - Community UI client: [alananisimov/olcbox](https://github.com/alananisimov/olcbox)
 
